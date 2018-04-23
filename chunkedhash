@@ -104,23 +104,24 @@ numchunks=$(( (total - 1) / chunk + 1 ))
 echo "$state bytes processed so far, resuming"
 
 while [ "$state" -lt "$total" ]; do
-    # Start offset for the next copy
-    offset=$(( ( ( state / chunk ) * chunk ) / bs ))
+    # Start offset for the next chunk
+    offset_bytes=$(( ( state / chunk ) * chunk ))
+    offset_blocks=$(( offset_bytes / bs ))
     echo "Hashing chunk $(( state / chunk + 1)) of $numchunks..."
 
-    hash=$(set -x; dd if="$infile" bs="$bs" skip="$offset" count="$(( chunk / bs ))" status=progress | "$hashprog")
+    hash=$(set -x; dd if="$infile" bs="$bs" skip="$offset_blocks" count="$(( chunk / bs ))" status=progress | "$hashprog")
 
-    if [[ $((offset * bs + chunk)) -gt $total ]]; then
-        realchunk=$(( total - (offset * bs) ))
+    if [[ $(( offset_bytes + chunk )) -gt $total ]]; then
+        realchunk=$(( total - offset_bytes ))
     else
         realchunk=$chunk
     fi
 
     # Append to outfile
-    echo "$hashprog $hash $(( offset * bs )) +$realchunk" | tee -a "$outfile"
+    echo "$hashprog $hash $offset_bytes +$realchunk" | tee -a "$outfile"
     sync --file-system "$outfile"
 
-    state=$(( ( ( state / chunk ) + 1 ) * chunk ))
+    state=$(( offset_bytes + realchunk ))
     if [[ -v statefile ]]; then
         # Update statefile (if specified)
         echo "$state" >"$statefile"
