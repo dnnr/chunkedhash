@@ -58,7 +58,7 @@ while getopts "hf:c:b:s:p:n:" arg; do
     esac
 done
 
-shift $((OPTIND - 1))
+shift $(( OPTIND - 1 ))
 if [ $# -lt 2 ]; then
     usage
 fi
@@ -126,7 +126,7 @@ while [ "$state" -lt "$total" ]; do
     fi
 
     if [[ -v stopnum ]]; then
-        stopnum=$((stopnum - 1))
+        stopnum=$(( stopnum - 1 ))
         if [[ $stopnum -lt 0 ]]; then
             echo "Stopping early"
             exit 0
