@@ -136,4 +136,4 @@ while [ "$state" -lt "$total" ]; do
         fi
     fi
 done
-echo "Finished copying!"
+echo "Finished!"
