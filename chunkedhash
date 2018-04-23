@@ -137,3 +137,5 @@ while [ "$state" -lt "$total" ]; do
     fi
 done
 echo "Finished!"
+
+# vim: set noet
