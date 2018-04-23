@@ -84,11 +84,13 @@ fi
 
 if [[ ! -v total ]]; then
     if [ -b "$infile" ]; then
-        echo "Input is block device, using blockdev(1) to determine total size"
+        echo -n "Input is block device, using blockdev(1) to determine total size: "
         total=$(blockdev --getsize64 "$infile")
+        echo "$total"
     else
-        echo "Input is file, using stat(1) to determine total size"
+        echo -n "Input is file, using stat(1) to determine total size: "
         total=$(stat -c '%s' "$infile")
+        echo "$total"
     fi
 fi
 
