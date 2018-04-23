@@ -1,0 +1,136 @@
+#!/bin/bash
+
+set -o errexit
+set -o nounset
+set -o pipefail
+
+# Set defaults
+chunk=$(( 10 * 1024 * 1024 ))
+bs=$(( 1024 * 1024 ))
+hashprog=md5sum
+
+function usage() {
+    cat >&2 <<-EOF
+	Usage: $(basename "$0") [options] infile outfile
+
+	Available options:
+	    -f FILE     state file for resuming (default: no resume, start over)
+	    -c BYTES    chunk size (default: $chunk)
+	    -b BYTES    block size (default: $bs)
+	    -s BYTES    input size (default: file or block device size)
+	    -p PROG     hash utility to invoke (default: $hashprog)
+        -n NUM      stop after this many chunks
+	EOF
+    exit 1
+}
+
+while getopts "hf:c:b:s:p:n:" arg; do
+    case $arg in
+        f)
+            statefile="$OPTARG"
+            echo "Using statefile: $statefile"
+            ;;
+        c)
+            chunk="$OPTARG"
+            echo "Using chunk size of $chunk"
+            ;;
+        b)
+            bs="$OPTARG"
+            echo "Using block size of $bs"
+            ;;
+        s)
+            total="$OPTARG"
+            echo "Assuming input size of $total"
+            ;;
+        p)
+            hashprog="$OPTARG"
+            echo "Using hash utility: $hashprog"
+            ;;
+        n)
+            stopnum="$OPTARG"
+            ;;
+        h)
+            usage
+            ;;
+        ?)
+            usage
+            ;;
+    esac
+done
+
+shift $((OPTIND - 1))
+if [ $# -lt 2 ]; then
+    usage
+fi
+
+infile="$1"
+outfile="$2"
+
+if [[ $chunk -lt $bs ]]; then
+    echo 2>&1 "Error: Chunk size must not be less than block size ($bs)"
+    exit 1
+fi
+
+if [[ $(( chunk % bs )) -ne 0 ]]; then
+    echo 2>&1 "Warning: Chunk size is not a multiple of block size"
+fi
+
+# Statefile holds number of bytes already processed
+if [[ -v statefile && -f "$statefile" ]]; then
+    state=$(cat "$statefile")
+else
+    state=0
+fi
+
+if [[ ! -v total ]]; then
+    if [ -b "$infile" ]; then
+        echo "Input is block device, using blockdev(1) to determine total size"
+        total=$(blockdev --getsize64 "$infile")
+    else
+        echo "Input is file, using stat(1) to determine total size"
+        total=$(stat -c '%s' "$infile")
+    fi
+fi
+
+if [[ $chunk -gt $total ]]; then
+    echo 2>&1 "Error: Chunk size is larger than input size ($chunk vs. $bs)"
+    exit 1
+fi
+
+numchunks=$(( (total - 1) / chunk + 1 ))
+
+echo "$state bytes processed so far, resuming"
+
+while [ "$state" -lt "$total" ]; do
+    # Start offset for the next copy
+    offset=$(( ( ( state / chunk ) * chunk ) / bs ))
+    echo "Hashing chunk $(( state / chunk + 1)) of $numchunks..."
+
+    hash=$(set -x; dd if="$infile" bs="$bs" skip="$offset" count="$(( chunk / bs ))" status=progress | "$hashprog")
+
+    if [[ $((offset * bs + chunk)) -gt $total ]]; then
+        realchunk=$(( total - (offset * bs) ))
+    else
+        realchunk=$chunk
+    fi
+
+    # Append to outfile
+    echo "$hashprog $hash $(( offset * bs )) +$realchunk" | tee -a "$outfile"
+    sync --file-system "$outfile"
+
+    state=$(( ( ( state / chunk ) + 1 ) * chunk ))
+    if [[ -v statefile ]]; then
+        # Update statefile (if specified)
+        echo "$state" >"$statefile"
+        sync --file-system "$statefile"
+    fi
+
+    if [[ -v stopnum ]]; then
+        stopnum=$((stopnum - 1))
+        if [[ $stopnum -lt 0 ]]; then
+            echo "Stopping early"
+            exit 0
+        fi
+    fi
+done
+echo "Finished copying!"
