@@ -99,6 +99,11 @@ if [[ $chunk -gt $total ]]; then
 	exit 1
 fi
 
+if [[ $(( total % bs )) -ne 0 ]]; then
+	echo 2>&1 "Error: Block size size is not a factor of total input size (must be)"
+	exit 1
+fi
+
 numchunks=$(( (total - 1) / chunk + 1 ))
 
 echo "$state bytes processed so far, resuming"
@@ -109,7 +114,13 @@ while [ "$state" -lt "$total" ]; do
 	offset_blocks=$(( offset_bytes / bs ))
 	echo "Hashing chunk $(( state / chunk + 1)) of $numchunks..."
 
-	hash=$(set -x; dd if="$infile" bs="$bs" skip="$offset_blocks" count="$(( chunk / bs ))" status=progress | "$hashprog")
+	count=$(( chunk / bs ))
+	if [[ $(( offset_blocks + count )) -gt $(( total / bs )) ]]; then
+		# Final chunk, use precise count value
+		count=$(( (total - offset_bytes) / bs ))
+	fi
+
+	hash=$(set -x; dd if="$infile" bs="$bs" skip="$offset_blocks" count="$count" status=progress | "$hashprog")
 
 	if [[ $(( offset_bytes + chunk )) -gt $total ]]; then
 		realchunk=$(( total - offset_bytes ))
